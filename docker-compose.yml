@@ -1,0 +1,36 @@
+services:
+  client:
+    build: .
+    container_name: my-container
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+    volumes:
+      - .:/app
+      - /app/node_modules
+
+  api:
+    build: ./todo-api
+    command: npm run dev
+    container_name: api
+    ports:
+      - "3000:3000"
+      - "5555:5555"
+    volumes:
+      - ./todo-api:/app
+      - /app/node_modules
+  db:
+    image: postgres:16
+    container_name: db
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: masafumi
+      POSTGRES_PASSWORD: Tm107348
+      POSTGRES_DB: todo_db
+
+volumes:
+  db-data:
