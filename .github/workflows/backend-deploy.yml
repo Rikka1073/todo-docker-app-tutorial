@@ -12,7 +12,7 @@ env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   REGION: ${{ secrets.GCP_REGION }}
   SERVICE_NAME: ${{ secrets.CLOUD_RUN_SERVICE_NAME }}
-  REPOSITORY: docker-todo-app
+  REPOSITORY: todo-app
   IMAGE_NAME: todo-api
 
 jobs:
