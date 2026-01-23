@@ -55,7 +55,7 @@ jobs:
             --region ${{ env.REGION }} \
             --platform managed \
             --allow-unauthenticated \
-            --set-env-vars "DATABASE_URL=${{ secrets.DATABASE_URL }},CORS_ORIGIN=https://todo-docker-app-blond.vercel.app" \
+            --set-env-vars "DATABASE_URL=${{ secrets.DATABASE_URL }},CORS_ORIGIN=https://todo-docker-app-tutorial.vercel.app" \
             --port 8080 \
             --memory 512Mi \
             --cpu 1 \
