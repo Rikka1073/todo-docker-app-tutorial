@@ -39,7 +39,7 @@
 
 - [Cloud Run API](https://console.cloud.google.com/apis/library/run.googleapis.com)
 - [Artifact Registry API](https://console.cloud.google.com/apis/library/artifactregistry.googleapis.com)
-- [Cloud SQL API](https://console.cloud.google.com/apis/library/sqladmin.googleapis.com)
+- ~~[Cloud SQL API](https://console.cloud.google.com/apis/library/sqladmin.googleapis.com)~~ ← Neonを使う場合は不要
 
 ### 1.3 Artifact Registryリポジトリ作成
 
@@ -51,25 +51,141 @@
    - リージョン: `asia-northeast1`
 4. 「作成」をクリック
 
-### 1.4 Cloud Runサービス作成
+### 1.4 Neonでデータベースを作成
+
+**Neon**は、無料で使えるサーバーレスPostgreSQLサービスです。Cloud SQLより安く、セットアップも簡単です。
+
+#### 1.4.1 Neonアカウント作成
+
+1. [Neon](https://neon.tech) にアクセス
+2. 「Sign Up」をクリック
+3. GitHubアカウントでサインアップ（推奨）または、メールアドレスでサインアップ
+
+#### 1.4.2 プロジェクト作成
+
+1. ダッシュボードで「Create a project」をクリック
+2. 設定:
+   - **Project name**: `todo-app`
+   - **Database name**: `tododb`
+   - **Region**: `AWS / Asia Pacific (Tokyo) ap-northeast-1`（東京リージョン推奨）
+   - **PostgreSQL version**: `16`（最新版でOK）
+3. 「Create Project」をクリック
+
+#### 1.4.3 接続文字列を取得
+
+プロジェクト作成後、**Connection Details**が表示されます。
+
+1. 「Connection string」タブを選択
+2. **Pooled connection**を選択（推奨）
+3. 接続文字列をコピー:
+   ```
+   postgresql://your-username:your-password@ep-xxx-xxx.ap-northeast-1.aws.neon.tech/tododb?sslmode=require
+   ```
+4. この接続文字列を**安全な場所にメモ**（後でGitHub Secretsに登録します）
+
+**重要メモ:**
+- **Neonの無料プラン**: 0.5GB storage、常時稼働
+- **自動スリープ**: 5分間アクセスがないとスリープ（初回アクセス時に数秒のコールドスタート）
+- **本番利用**: 無料プランでも十分実用的
+
+#### 1.4.4 データベースの確認（オプション）
+
+Neonダッシュボードの「SQL Editor」で接続を確認できます:
+
+```sql
+-- テーブル一覧を表示
+\dt
+
+-- データベース情報を表示
+SELECT version();
+```
+
+### 1.5 Dockerイメージをビルドしてプッシュ
+
+**前提条件**: gcloud CLIがインストールされていること（[インストール手順](https://cloud.google.com/sdk/docs/install)）
+
+#### 1.5.1 gcloud認証とプロジェクト設定
+
+**重要**: この手順をスキップすると、docker pushで認証エラーが発生します。
+
+```bash
+# 1. gcloudにログイン（ブラウザが開きます）
+gcloud auth login
+
+# 2. プロジェクトを設定（プロジェクトIDを置き換えてください）
+gcloud config set project todo-app-xxxxx
+
+# 3. Docker認証を設定（重要！）
+# このコマンドで、DockerクライアントがArtifact Registryにアクセスできるようになります
+gcloud auth configure-docker asia-northeast1-docker.pkg.dev
+```
+
+**3番目のコマンドの説明:**
+- `~/.docker/config.json` に認証ヘルパーの設定が追加されます
+- これにより、`docker push` 時に gcloud の認証情報が自動的に使用されます
+- **この設定がないと**、以下のエラーが発生します：
+  ```
+  Unauthenticated request. Unauthenticated requests do not have permission
+  "artifactregistry.repositories.uploadArtifacts" on resource...
+  ```
+
+**確認方法:**
+```bash
+# Docker設定ファイルを確認
+cat ~/.docker/config.json
+# 以下のような設定が追加されていればOK
+# "credHelpers": {
+#   "asia-northeast1-docker.pkg.dev": "gcloud"
+# }
+```
+
+#### 1.5.2 Dockerイメージをビルド
+
+```bash
+# プロジェクトルートに移動
+cd /path/to/todo-docker-app
+
+# todo-apiディレクトリに移動
+cd todo-api
+
+# Dockerイメージをビルド（プロジェクトIDを置き換えてください）
+docker build -t asia-northeast1-docker.pkg.dev/todo-app-xxxxx/todo-api/todo-api:latest .
+```
+
+**注意**: ビルド中に`DATABASE_URL`環境変数が必要というエラーが出る場合がありますが、Dockerfileでダミー値が設定されているので正常にビルドされます。
+
+#### 1.5.3 Artifact Registryにプッシュ
+
+```bash
+# イメージをプッシュ（プロジェクトIDを置き換えてください）
+docker push asia-northeast1-docker.pkg.dev/todo-app-xxxxx/todo-api/todo-api:latest
+```
+
+#### 1.5.4 プッシュ確認
+
+1. [Artifact Registry](https://console.cloud.google.com/artifacts) を開く
+2. `todo-api` リポジトリをクリック
+3. `todo-api` イメージが表示されていればOK
+
+### 1.6 Cloud Runサービス作成
 
 1. [Cloud Run](https://console.cloud.google.com/run) を開く
 2. 「サービスを作成」をクリック
 3. 設定:
    - サービス名: `todo-api`
    - リージョン: `asia-northeast1`
-   - コンテナイメージのURL: `us-docker.pkg.dev/cloudrun/container/hello`
+   - コンテナイメージのURL: `asia-northeast1-docker.pkg.dev/todo-app-xxxxx/todo-api/todo-api:latest`（手順1.5でプッシュしたイメージ）
    - 認証: `未認証の呼び出しを許可`
 4. 「コンテナ、ネットワーキング、セキュリティ」→「コンテナ」:
    - コンテナポート: `8080`
    - メモリ: `512 MiB`
    - CPU: `1`
 5. 「環境変数」:
-   - `DATABASE_URL` = `postgresql://ユーザー名:パスワード@/データベース名?host=/cloudsql/プロジェクトID:リージョン:インスタンス名`
+   - `DATABASE_URL` = 手順1.4.3で取得したNeonの接続文字列（例: `postgresql://your-username:your-password@ep-xxx-xxx.ap-northeast-1.aws.neon.tech/tododb?sslmode=require`）
 6. 「作成」をクリック
 7. サービスURLをメモ: `https://todo-api-xxxxx-an.a.run.app`
 
-### 1.5 サービスアカウント作成
+### 1.7 サービスアカウント作成
 
 1. [サービスアカウント](https://console.cloud.google.com/iam-admin/serviceaccounts) を開く
 2. 「サービスアカウントを作成」をクリック
@@ -131,10 +247,10 @@
 | Name | Value |
 |------|-------|
 | `GCP_PROJECT_ID` | `todo-app-xxxxx`（プロジェクトID） |
-| `GCP_SERVICE_ACCOUNT_KEY` | JSONファイルの内容全体 |
+| `GCP_SERVICE_ACCOUNT_KEY` | JSONファイルの内容全体（手順1.7で取得） |
 | `GCP_REGION` | `asia-northeast1` |
 | `CLOUD_RUN_SERVICE_NAME` | `todo-api` |
-| `DATABASE_URL` | `postgresql://...`（Cloud SQL接続URL） |
+| `DATABASE_URL` | Neonの接続文字列（手順1.4.3で取得、例: `postgresql://your-username:your-password@ep-xxx-xxx.ap-northeast-1.aws.neon.tech/tododb?sslmode=require`） |
 
 ### Vercel関連
 
@@ -270,6 +386,32 @@ curl https://todo-api-xxxxx-an.a.run.app/api/todos
 
 ## トラブルシューティング
 
+### Docker push で認証エラーが出る
+
+**エラー内容:**
+```
+Unauthenticated request. Unauthenticated requests do not have permission
+"artifactregistry.repositories.uploadArtifacts" on resource...
+```
+
+**原因:** Docker認証が設定されていない
+
+**解決方法:**
+```bash
+# Docker認証を設定
+gcloud auth configure-docker asia-northeast1-docker.pkg.dev
+
+# 確認
+cat ~/.docker/config.json
+# "credHelpers" に "asia-northeast1-docker.pkg.dev": "gcloud" が含まれていればOK
+```
+
+**それでも解決しない場合:**
+```bash
+# Application Default Credentialsを設定
+gcloud auth application-default login
+```
+
 ### GitHub Actionsが失敗する
 
 1. GitHub → リポジトリ → Actions → 失敗したワークフローをクリック
@@ -295,6 +437,7 @@ curl https://todo-api-xxxxx-an.a.run.app/api/todos
 これで、以下が完了しました：
 
 ✅ GCPプロジェクトの準備
+✅ **Neonでデータベースをデプロイ（無料）**
 ✅ Vercelでフロントエンドをデプロイ
 ✅ Cloud Runでバックエンドをデプロイ
 ✅ GitHub Actionsで自動デプロイ
